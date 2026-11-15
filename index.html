@@ -1,1 +1,333 @@
 
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SATURN V — Launch Simulator</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#06111f;color:#fff;font-family:Arial,sans-serif;touch-action:pan-y}
+#scene{position:fixed;inset:0}
+canvas{display:block;width:100%;height:100%}
+.top{position:fixed;top:max(16px,env(safe-area-inset-top));left:18px;right:18px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;text-shadow:0 2px 10px #001}
+.brand{font-size:12px;letter-spacing:3px;font-weight:800;color:#d9efff}
+.sub{font-size:9px;letter-spacing:2px;color:#8fb7d2;margin-top:5px}
+.status{font-size:10px;letter-spacing:1px;color:#a9d7f4;border:1px solid #6ab9e755;border-radius:20px;padding:7px 11px;background:#071b2c88}
+.bottom{position:fixed;left:0;right:0;bottom:max(24px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:12px;pointer-events:none}
+.hint{font-size:10px;letter-spacing:2px;color:#c3d8e9;text-shadow:0 2px 8px #001}
+.launch{pointer-events:auto;border:0;border-radius:50%;width:76px;height:76px;background:linear-gradient(145deg,#42c5ff,#087bc9);color:white;font-weight:800;font-size:12px;letter-spacing:1px;box-shadow:0 0 0 7px #4bbfff22,0 8px 30px #008ee866;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.launch:active{transform:scale(.95)}
+.launch.count{font-size:27px;background:linear-gradient(145deg,#ffb34d,#e56b19);box-shadow:0 0 0 7px #ffad4022,0 8px 30px #f80a5555}
+.launch:disabled{cursor:default}
+.readout{position:fixed;top:76px;left:18px;display:flex;gap:16px;pointer-events:none;text-shadow:0 2px 8px #001}
+.metric{font-size:9px;letter-spacing:1px;color:#9dbbd0}
+.metric b{display:block;color:#fff;font-size:15px;margin-top:4px;letter-spacing:0}
+.toast{position:fixed;left:0;right:0;bottom:125px;text-align:center;color:#fff;font-size:11px;letter-spacing:2px;text-shadow:0 2px 8px #001;pointer-events:none;opacity:0;transition:opacity .4s}
+.toast.show{opacity:1}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="scene"></div>
+<div class="top">
+<div><div class="brand">SATURN V</div><div class="sub">LAUNCH SIMULATOR</div></div>
+<div class="status" id="status">READY FOR LAUNCH</div>
+</div>
+<div class="readout">
+<div class="metric">ALTITUDE<b id="alt">0 m</b></div>
+<div class="metric">SPEED<b id="speed">0 m/s</b></div>
+</div>
+<div class="toast" id="toast">MAIN ENGINE IGNITION</div>
+<div class="bottom">
+<div class="hint" id="hint">ГОТОВНОСТЬ К ЗАПУСКУ</div>
+<button class="launch" id="launch">СТАРТ</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
+import {MTLLoader} from 'three/addons/loaders/MTLLoader.js';
+
+const host=document.querySelector('#scene');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x78b8e8);
+scene.fog=new THREE.Fog(0x9bc9e8,55,180);
+
+const camera=new THREE.PerspectiveCamera(48,innerWidth/innerHeight,.1,3000);
+camera.position.set(13,8,25);
+camera.lookAt(0,5,0);
+
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.15;
+host.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xd8efff,0x38434b,2));
+const sun=new THREE.DirectionalLight(0xfff0d7,3.2);
+sun.position.set(-20,35,25);
+scene.add(sun);
+
+// Земля
+const earth=new THREE.Mesh(
+new THREE.SphereGeometry(950,64,48),
+new THREE.MeshStandardMaterial({color:0x397e9b,roughness:1})
+);
+earth.position.set(0,-946,0);
+scene.add(earth);
+
+// Стартовая площадка
+const ground=new THREE.Mesh(
+new THREE.PlaneGeometry(500,500),
+new THREE.MeshStandardMaterial({color:0x555b56,roughness:1})
+);
+ground.rotation.x=-Math.PI/2;
+ground.position.y=-.08;
+scene.add(ground);
+
+const metal=new THREE.MeshStandardMaterial({color:0x697780,metalness:.55,roughness:.55});
+const dark=new THREE.MeshStandardMaterial({color:0x27343b,metalness:.35,roughness:.7});
+
+function box(w,h,d,x,y,z,mat=metal){
+const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+m.position.set(x,y,z);
+scene.add(m);
+return m;
+}
+
+box(13,.55,10,0,.2,0,dark);
+box(2,13,.7,-4.2,6.5,-1,metal);
+for(let y=1;y<13;y+=1.5)box(2.5,.12,.9,-4.2,y,-1,dark);
+box(.18,13,.18,-5.1,6.5,-1,dark);
+box(.18,13,.18,-3.3,6.5,-1,dark);
+
+// Облака
+const cloudMat=new THREE.MeshStandardMaterial({
+color:0xf4fbff,transparent:true,opacity:.7,roughness:1
+});
+for(let i=0;i<18;i++){
+const c=new THREE.Mesh(
+new THREE.SphereGeometry(2+Math.random()*3,12,8),
+cloudMat
+);
+c.scale.y=.22;
+c.position.set((Math.random()-.5)*150,16+Math.random()*17,-65-Math.random()*80);
+scene.add(c);
+}
+
+// Звёзды
+const starGeo=new THREE.BufferGeometry(),starPos=[];
+for(let i=0;i<1600;i++){
+const r=700;
+const a=Math.random()*Math.PI*2;
+const y=Math.random()*500+20;
+starPos.push(Math.cos(a)*r,y,Math.sin(a)*r);
+}
+starGeo.setAttribute('position',new THREE.Float32BufferAttribute(starPos,3));
+const stars=new THREE.Points(
+starGeo,
+new THREE.PointsMaterial({color:0xffffff,size:1.5,transparent:true,opacity:0})
+);
+scene.add(stars);
+
+// Ракета
+const rocketRoot=new THREE.Group();
+scene.add(rocketRoot);
+let rocket=null;
+
+const fallback=new THREE.Group();
+const body=new THREE.Mesh(
+new THREE.CylinderGeometry(.72,.85,10,24),
+new THREE.MeshStandardMaterial({color:0xe8e8e3,roughness:.55})
+);
+fallback.add(body);
+
+const nose=new THREE.Mesh(
+new THREE.ConeGeometry(.72,2.5,24),
+new THREE.MeshStandardMaterial({color:0xe8e8e3})
+);
+nose.position.y=6.2;
+fallback.add(nose);
+
+const black=new THREE.Mesh(
+new THREE.CylinderGeometry(.74,.74,1.3,24),
+new THREE.MeshStandardMaterial({color:0x17191c})
+);
+black.position.y=2.2;
+fallback.add(black);
+rocketRoot.add(fallback);
+
+// Загрузка настоящей модели
+new MTLLoader().load('./models/saturn-v.mtl',mats=>{
+mats.preload();
+new OBJLoader().setMaterials(mats).load('./models/saturn-v.obj',obj=>{
+obj.traverse(c=>{
+if(c.isMesh){
+c.castShadow=true;
+c.material.side=THREE.DoubleSide;
+}
+});
+const b=new THREE.Box3().setFromObject(obj);
+const size=b.getSize(new THREE.Vector3());
+const center=b.getCenter(new THREE.Vector3());
+obj.position.sub(center);
+const scale=13/Math.max(size.x,size.y,size.z);
+obj.scale.setScalar(scale);
+rocketRoot.remove(fallback);
+rocketRoot.add(obj);
+rocket=obj;
+},undefined,e=>console.warn('OBJ load failed',e));
+},undefined,e=>console.warn('MTL load failed',e));
+
+rocketRoot.position.set(0,7,0);
+
+// Пламя двигателя
+const flame=new THREE.Mesh(
+new THREE.ConeGeometry(1.05,5,24),
+new THREE.MeshBasicMaterial({color:0xff8a21,transparent:true,opacity:0})
+);
+flame.rotation.x=Math.PI;
+flame.position.y=-7.5;
+rocketRoot.add(flame);
+
+const inner=new THREE.Mesh(
+new THREE.ConeGeometry(.55,3.8,20),
+new THREE.MeshBasicMaterial({color:0xffefb0,transparent:true,opacity:0})
+);
+inner.rotation.x=Math.PI;
+inner.position.y=-7.2;
+rocketRoot.add(inner);
+
+// Управление
+let mode='ready',count=10,launchStart=0,altitude=0,velocity=0;
+const btn=document.querySelector('#launch');
+const hint=document.querySelector('#hint');
+const status=document.querySelector('#status');
+const toast=document.querySelector('#toast');
+
+function startCountdown(){
+if(mode!=='ready'&&mode!=='landed')return;
+mode='countdown';
+count=10;
+btn.classList.add('count');
+btn.textContent='10';
+btn.disabled=true;
+hint.textContent='ПОСЛЕДОВАТЕЛЬНОСТЬ ЗАПУСКА';
+status.textContent='COUNTDOWN';
+
+const timer=setInterval(()=>{
+if(mode!=='countdown'){
+clearInterval(timer);
+return;
+}
+count--;
+if(count>0){
+btn.textContent=count;
+}else{
+clearInterval(timer);
+btn.textContent='GO';
+setTimeout(()=>{
+btn.style.display='none';
+ignite();
+},450);
+}
+},1000);
+}
+
+function ignite(){
+mode='flight';
+launchStart=performance.now();
+status.textContent='ENGINE IGNITION';
+hint.textContent='ДВИГАТЕЛИ ЗАПУЩЕНЫ';
+toast.classList.add('show');
+setTimeout(()=>toast.classList.remove('show'),2600);
+}
+
+btn.addEventListener('click',startCountdown);
+
+function reset(){
+mode='ready';
+altitude=0;
+velocity=0;
+rocketRoot.position.set(0,7,0);
+rocketRoot.rotation.set(0,0,0);
+flame.material.opacity=0;
+inner.material.opacity=0;
+stars.material.opacity=0;
+btn.style.display='block';
+btn.disabled=false;
+btn.classList.remove('count');
+btn.textContent='СТАРТ';
+hint.textContent='ГОТОВНОСТЬ К ЗАПУСКУ';
+status.textContent='READY FOR LAUNCH';
+document.querySelector('#alt').textContent='0 m';
+document.querySelector('#speed').textContent='0 m/s';
+}
+
+const clock=new THREE.Clock();
+
+function animate(now){
+requestAnimationFrame(animate);
+const dt=Math.min(clock.getDelta(),.04);
+
+if(mode==='flight'){
+const t=(now-launchStart)/1000;
+velocity=Math.min(165,t*17);
+altitude=Math.max(0,0.5*17*t*t);
+
+rocketRoot.position.y=7+Math.min(altitude*.18,380);
+rocketRoot.position.x=Math.sin(t*.12)*.5;
+
+camera.position.y=8+Math.min(altitude*.13,350);
+camera.position.z=25+Math.min(altitude*.035,70);
+camera.lookAt(0,rocketRoot.position.y+2,0);
+
+flame.material.opacity=.92;
+inner.material.opacity=1;
+flame.scale.setScalar(.8+Math.random()*.35);
+stars.material.opacity=Math.min(.95,Math.max(0,(altitude-300)/2200));
+scene.fog.density=0;
+
+if(t>35){
+mode='coast';
+flame.material.opacity=0;
+inner.material.opacity=0;
+status.textContent='UPPER ATMOSPHERE';
+hint.textContent='ПОЛЁТ ПРОДОЛЖАЕТСЯ';
+}
+}
+
+if(mode==='ready'||mode==='landed'){
+rocketRoot.position.y=7+Math.sin(now*.001)*.035;
+}
+
+if(mode==='flight'||mode==='coast'){
+document.querySelector('#alt').textContent=Math.round(altitude)+' m';
+document.querySelector('#speed').textContent=Math.round(velocity)+' m/s';
+}
+
+if(mode==='coast'){
+stars.material.opacity=.95;
+altitude+=velocity*dt;
+rocketRoot.position.y+=velocity*dt*.015;
+velocity=Math.max(0,velocity-0.08*dt);
+}
+
+renderer.render(scene,camera);
+}
+
+requestAnimationFrame(animate);
+
+addEventListener('resize',()=>{
+camera.aspect=innerWidth/innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+});
+</script>
+</body>
+</html>
+
